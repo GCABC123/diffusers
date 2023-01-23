@@ -22,7 +22,7 @@ import jax.numpy as jnp
 from jax import random
 
 from ..configuration_utils import ConfigMixin, register_to_config
-from .scheduling_utils import SchedulerMixin, SchedulerOutput
+from .scheduling_utils_flax import FlaxSchedulerMixin, FlaxSchedulerOutput, broadcast_to_shape_from_left
 
 
 @flax.struct.dataclass
@@ -38,7 +38,7 @@ class ScoreSdeVeSchedulerState:
 
 
 @dataclass
-class FlaxSdeVeOutput(SchedulerOutput):
+class FlaxSdeVeOutput(FlaxSchedulerOutput):
     """
     Output class for the ScoreSdeVeScheduler's step function output.
 
@@ -56,7 +56,7 @@ class FlaxSdeVeOutput(SchedulerOutput):
     prev_sample_mean: Optional[jnp.ndarray] = None
 
 
-class FlaxScoreSdeVeScheduler(SchedulerMixin, ConfigMixin):
+class FlaxScoreSdeVeScheduler(FlaxSchedulerMixin, ConfigMixin):
     """
     The variance exploding stochastic differential equation (SDE) scheduler.
 
@@ -64,8 +64,8 @@ class FlaxScoreSdeVeScheduler(SchedulerMixin, ConfigMixin):
 
     [`~ConfigMixin`] takes care of storing all config attributes that are passed in the scheduler's `__init__`
     function, such as `num_train_timesteps`. They can be accessed via `scheduler.config.num_train_timesteps`.
-    [`~ConfigMixin`] also provides general loading and saving functionality via the [`~ConfigMixin.save_config`] and
-    [`~ConfigMixin.from_config`] functions.
+    [`SchedulerMixin`] provides general loading and saving functionality via the [`SchedulerMixin.save_pretrained`] and
+    [`~SchedulerMixin.from_pretrained`] functions.
 
     Args:
         num_train_timesteps (`int`): number of diffusion steps used to train the model.
@@ -80,6 +80,10 @@ class FlaxScoreSdeVeScheduler(SchedulerMixin, ConfigMixin):
         correct_steps (`int`): number of correction steps performed on a produced sample.
     """
 
+    @property
+    def has_state(self):
+        return True
+
     @register_to_config
     def __init__(
         self,
@@ -90,12 +94,20 @@ class FlaxScoreSdeVeScheduler(SchedulerMixin, ConfigMixin):
         sampling_eps: float = 1e-5,
         correct_steps: int = 1,
     ):
-        state = ScoreSdeVeSchedulerState.create()
+        pass
 
-        self.state = self.set_sigmas(state, num_train_timesteps, sigma_min, sigma_max, sampling_eps)
+    def create_state(self):
+        state = ScoreSdeVeSchedulerState.create()
+        return self.set_sigmas(
+            state,
+            self.config.num_train_timesteps,
+            self.config.sigma_min,
+            self.config.sigma_max,
+            self.config.sampling_eps,
+        )
 
     def set_timesteps(
-        self, state: ScoreSdeVeSchedulerState, num_inference_steps: int, sampling_eps: float = None
+        self, state: ScoreSdeVeSchedulerState, num_inference_steps: int, shape: Tuple = (), sampling_eps: float = None
     ) -> ScoreSdeVeSchedulerState:
         """
         Sets the continuous timesteps used for the diffusion chain. Supporting function to be run before inference.
@@ -168,7 +180,7 @@ class FlaxScoreSdeVeScheduler(SchedulerMixin, ConfigMixin):
             sample (`jnp.ndarray`):
                 current instance of sample being created by diffusion process.
             generator: random number generator.
-            return_dict (`bool`): option for returning tuple rather than SchedulerOutput class
+            return_dict (`bool`): option for returning tuple rather than FlaxSdeVeOutput class
 
         Returns:
             [`FlaxSdeVeOutput`] or `tuple`: [`FlaxSdeVeOutput`] if `return_dict` is True, otherwise a `tuple`. When
@@ -192,14 +204,16 @@ class FlaxScoreSdeVeScheduler(SchedulerMixin, ConfigMixin):
 
         # equation 6 in the paper: the model_output modeled by the network is grad_x log pt(x)
         # also equation 47 shows the analog from SDE models to ancestral sampling methods
-        drift = drift - diffusion[:, None, None, None] ** 2 * model_output
+        diffusion = diffusion.flatten()
+        diffusion = broadcast_to_shape_from_left(diffusion, sample.shape)
+        drift = drift - diffusion**2 * model_output
 
         #  equation 6: sample noise for the diffusion term of
         key = random.split(key, num=1)
         noise = random.normal(key=key, shape=sample.shape)
         prev_sample_mean = sample - drift  # subtract because `dt` is a small negative timestep
         # TODO is the variable diffusion the correct scaling term for the noise?
-        prev_sample = prev_sample_mean + diffusion[:, None, None, None] * noise  # add impact of diffusion field g
+        prev_sample = prev_sample_mean + diffusion * noise  # add impact of diffusion field g
 
         if not return_dict:
             return (prev_sample, prev_sample_mean, state)
@@ -213,7 +227,7 @@ class FlaxScoreSdeVeScheduler(SchedulerMixin, ConfigMixin):
         sample: jnp.ndarray,
         key: random.KeyArray,
         return_dict: bool = True,
-    ) -> Union[SchedulerOutput, Tuple]:
+    ) -> Union[FlaxSdeVeOutput, Tuple]:
         """
         Correct the predicted sample based on the output model_output of the network. This is often run repeatedly
         after making the prediction for the previous timestep.
@@ -224,7 +238,7 @@ class FlaxScoreSdeVeScheduler(SchedulerMixin, ConfigMixin):
             sample (`jnp.ndarray`):
                 current instance of sample being created by diffusion process.
             generator: random number generator.
-            return_dict (`bool`): option for returning tuple rather than SchedulerOutput class
+            return_dict (`bool`): option for returning tuple rather than FlaxSdeVeOutput class
 
         Returns:
             [`FlaxSdeVeOutput`] or `tuple`: [`FlaxSdeVeOutput`] if `return_dict` is True, otherwise a `tuple`. When
@@ -248,8 +262,10 @@ class FlaxScoreSdeVeScheduler(SchedulerMixin, ConfigMixin):
         step_size = step_size * jnp.ones(sample.shape[0])
 
         # compute corrected sample: model_output term and noise term
-        prev_sample_mean = sample + step_size[:, None, None, None] * model_output
-        prev_sample = prev_sample_mean + ((step_size * 2) ** 0.5)[:, None, None, None] * noise
+        step_size = step_size.flatten()
+        step_size = broadcast_to_shape_from_left(step_size, sample.shape)
+        prev_sample_mean = sample + step_size * model_output
+        prev_sample = prev_sample_mean + ((step_size * 2) ** 0.5) * noise
 
         if not return_dict:
             return (prev_sample, state)

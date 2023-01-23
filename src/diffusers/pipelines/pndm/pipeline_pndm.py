@@ -10,18 +10,17 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-
 # limitations under the License.
 
 
-import warnings
-from typing import Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import torch
 
 from ...models import UNet2DModel
-from ...pipeline_utils import DiffusionPipeline, ImagePipelineOutput
 from ...schedulers import PNDMScheduler
+from ...utils import randn_tensor
+from ..pipeline_utils import DiffusionPipeline, ImagePipelineOutput
 
 
 class PNDMPipeline(DiffusionPipeline):
@@ -40,7 +39,9 @@ class PNDMPipeline(DiffusionPipeline):
 
     def __init__(self, unet: UNet2DModel, scheduler: PNDMScheduler):
         super().__init__()
-        scheduler = scheduler.set_format("pt")
+
+        scheduler = PNDMScheduler.from_config(scheduler.config)
+
         self.register_modules(unet=unet, scheduler=scheduler)
 
     @torch.no_grad()
@@ -48,7 +49,7 @@ class PNDMPipeline(DiffusionPipeline):
         self,
         batch_size: int = 1,
         num_inference_steps: int = 50,
-        generator: Optional[torch.Generator] = None,
+        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
         **kwargs,
@@ -63,36 +64,23 @@ class PNDMPipeline(DiffusionPipeline):
                 generator](https://pytorch.org/docs/stable/generated/torch.Generator.html) to make generation
                 deterministic.
             output_type (`str`, `optional`, defaults to `"pil"`): The output format of the generate image. Choose
-                between [PIL](https://pillow.readthedocs.io/en/stable/): `PIL.Image.Image` or `nd.array`.
+                between [PIL](https://pillow.readthedocs.io/en/stable/): `PIL.Image.Image` or `np.array`.
             return_dict (`bool`, `optional`, defaults to `True`): Whether or not to return a
-                [`~pipeline_utils.ImagePipelineOutput`] instead of a plain tuple.
+                [`~pipelines.ImagePipelineOutput`] instead of a plain tuple.
 
         Returns:
-            [`~pipeline_utils.ImagePipelineOutput`] or `tuple`: [`~pipelines.utils.ImagePipelineOutput`] if
-            `return_dict` is True, otherwise a `tuple. When returning a tuple, the first element is a list with the
-            generated images.
+            [`~pipelines.ImagePipelineOutput`] or `tuple`: [`~pipelines.utils.ImagePipelineOutput`] if `return_dict` is
+            True, otherwise a `tuple. When returning a tuple, the first element is a list with the generated images.
         """
         # For more information on the sampling method you can take a look at Algorithm 2 of
         # the official paper: https://arxiv.org/pdf/2202.09778.pdf
 
-        if "torch_device" in kwargs:
-            device = kwargs.pop("torch_device")
-            warnings.warn(
-                "`torch_device` is deprecated as an input argument to `__call__` and will be removed in v0.3.0."
-                " Consider using `pipe.to(torch_device)` instead."
-            )
-
-            # Set device as before (to be removed in 0.3.0)
-            if device is None:
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.to(device)
-
         # Sample gaussian noise to begin loop
-        image = torch.randn(
+        image = randn_tensor(
             (batch_size, self.unet.in_channels, self.unet.sample_size, self.unet.sample_size),
             generator=generator,
+            device=self.device,
         )
-        image = image.to(self.device)
 
         self.scheduler.set_timesteps(num_inference_steps)
         for t in self.progress_bar(self.scheduler.timesteps):

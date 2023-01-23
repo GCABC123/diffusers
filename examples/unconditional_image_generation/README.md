@@ -4,11 +4,22 @@ Creating a training image set is [described in a different document](https://hug
 
 ### Installing the dependencies
 
-Before running the scipts, make sure to install the library's training dependencies:
+Before running the scripts, make sure to install the library's training dependencies:
 
+**Important**
+
+To make sure you can successfully run the latest versions of the example scripts, we highly recommend **installing from source** and keeping the install up to date as we update the example scripts frequently and install some example-specific requirements. To do this, execute the following steps in a new virtual environment:
 ```bash
-pip install diffusers[training] accelerate datasets
+git clone https://github.com/huggingface/diffusers
+cd diffusers
+pip install .
 ```
+
+Then cd in the example folder  and run
+```bash
+pip install -r requirements.txt
+```
+
 
 And initialize an [🤗Accelerate](https://github.com/huggingface/accelerate/) environment with:
 
@@ -28,6 +39,7 @@ accelerate launch train_unconditional.py \
   --train_batch_size=16 \
   --num_epochs=100 \
   --gradient_accumulation_steps=1 \
+  --use_ema \
   --learning_rate=1e-4 \
   --lr_warmup_steps=500 \
   --mixed_precision=no \
@@ -52,6 +64,7 @@ accelerate launch train_unconditional.py \
   --train_batch_size=16 \
   --num_epochs=100 \
   --gradient_accumulation_steps=1 \
+  --use_ema \
   --learning_rate=1e-4 \
   --lr_warmup_steps=500 \
   --mixed_precision=no \
@@ -102,7 +115,7 @@ from datasets import load_dataset
 # example 1: local folder
 dataset = load_dataset("imagefolder", data_dir="path_to_your_folder")
 
-# example 2: local files (suppoted formats are tar, gzip, zip, xz, rar, zstd)
+# example 2: local files (supported formats are tar, gzip, zip, xz, rar, zstd)
 dataset = load_dataset("imagefolder", data_files="path_to_zip_file")
 
 # example 3: remote files (supported formats are tar, gzip, zip, xz, rar, zstd)
@@ -127,3 +140,25 @@ dataset.push_to_hub("name_of_your_dataset", private=True)
 and that's it! You can now train your model by simply setting the `--dataset_name` argument to the name of your dataset on the hub.
 
 More on this can also be found in [this blog post](https://huggingface.co/blog/image-search-datasets).
+
+#### Use ONNXRuntime to accelerate training
+
+In order to leverage onnxruntime to accelerate training, please use train_unconditional_ort.py
+
+The command to train a DDPM UNet model on the Oxford Flowers dataset with onnxruntime:
+
+```bash
+accelerate launch train_unconditional_ort.py \
+  --dataset_name="huggan/flowers-102-categories" \
+  --resolution=64 \
+  --output_dir="ddpm-ema-flowers-64" \
+  --use_ema \
+  --train_batch_size=16 \
+  --num_epochs=1 \
+  --gradient_accumulation_steps=1 \
+  --learning_rate=1e-4 \
+  --lr_warmup_steps=500 \
+  --mixed_precision=fp16
+  ```
+
+Please contact Prathik Rao (prathikr), Sunghoon Choi (hanbitmyths), Ashwini Khade (askhade), or Peng Wang (pengwa) on github with any questions.

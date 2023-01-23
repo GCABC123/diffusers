@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The HuggingFace Inc. team.
+# Copyright 2022 The HuggingFace Inc. team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -96,6 +96,7 @@ def ignore_underscore(key):
 
 def sort_objects(objects, key=None):
     "Sort a list of `objects` following the rules of isort. `key` optionally maps an object to a str."
+
     # If no key is provided, we use a noop.
     def noop(x):
         return x
@@ -117,6 +118,7 @@ def sort_objects_in_import(import_statement):
     """
     Return the same `import_statement` but with objects properly sorted.
     """
+
     # This inner function sort imports between [ ].
     def _replace(match):
         imports = match.groups()[0]
@@ -178,7 +180,7 @@ def sort_imports(file, check_only=True):
         code, start_prompt="_import_structure = {", end_prompt="if TYPE_CHECKING:"
     )
 
-    # We ignore block 0 (everything untils start_prompt) and the last block (everything after end_prompt).
+    # We ignore block 0 (everything until start_prompt) and the last block (everything after end_prompt).
     for block_idx in range(1, len(main_blocks) - 1):
         # Check if the block contains some `_import_structure`s thingy to sort.
         block = main_blocks[block_idx]
@@ -200,9 +202,9 @@ def sort_imports(file, check_only=True):
         indent = get_indent(block_lines[1])
         # Slit the internal block into blocks of indent level 1.
         internal_blocks = split_code_in_indented_blocks(internal_block_code, indent_level=indent)
-        # We have two categories of import key: list or _import_structu[key].append/extend
+        # We have two categories of import key: list or _import_structure[key].append/extend
         pattern = _re_direct_key if "_import_structure" in block_lines[0] else _re_indirect_key
-        # Grab the keys, but there is a trap: some lines are empty or jsut comments.
+        # Grab the keys, but there is a trap: some lines are empty or just comments.
         keys = [(pattern.search(b).groups()[0] if pattern.search(b) is not None else None) for b in internal_blocks]
         # We only sort the lines with a key.
         keys_to_sort = [(i, key) for i, key in enumerate(keys) if key is not None]
@@ -210,17 +212,17 @@ def sort_imports(file, check_only=True):
 
         # We reorder the blocks by leaving empty lines/comments as they were and reorder the rest.
         count = 0
-        reorderded_blocks = []
+        reordered_blocks = []
         for i in range(len(internal_blocks)):
             if keys[i] is None:
-                reorderded_blocks.append(internal_blocks[i])
+                reordered_blocks.append(internal_blocks[i])
             else:
                 block = sort_objects_in_import(internal_blocks[sorted_indices[count]])
-                reorderded_blocks.append(block)
+                reordered_blocks.append(block)
                 count += 1
 
         # And we put our main block back together with its first and last line.
-        main_blocks[block_idx] = "\n".join(block_lines[:line_idx] + reorderded_blocks + [block_lines[-1]])
+        main_blocks[block_idx] = "\n".join(block_lines[:line_idx] + reordered_blocks + [block_lines[-1]])
 
     if code != "\n".join(main_blocks):
         if check_only:

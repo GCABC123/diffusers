@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2020 Optuna, Hugging Face
+# Copyright 2022 Optuna, Hugging Face
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -266,7 +266,7 @@ def reset_format() -> None:
 
 def warning_advice(self, *args, **kwargs):
     """
-    This method is identical to `logger.warninging()`, but if env var DIFFUSERS_NO_ADVISORY_WARNINGS=1 is set, this
+    This method is identical to `logger.warning()`, but if env var DIFFUSERS_NO_ADVISORY_WARNINGS=1 is set, this
     warning will not be printed
     """
     no_advisory_warnings = os.getenv("DIFFUSERS_NO_ADVISORY_WARNINGS", False)
